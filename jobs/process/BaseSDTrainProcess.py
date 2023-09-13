@@ -478,10 +478,12 @@ class BaseSDTrainProcess(BaseTrainProcess):
                     text_encoder.gradient_checkpointing_enable()
 
         if isinstance(text_encoder, list):
+            print("disabling text encoder grad")
             for te in text_encoder:
                 te.requires_grad_(False)
                 te.eval()
         else:
+            print("disabling text encoder grad")
             text_encoder.requires_grad_(False)
             text_encoder.eval()
         unet.to(self.device_torch, dtype=dtype)
@@ -522,7 +524,8 @@ class BaseSDTrainProcess(BaseTrainProcess):
                 lora_dim=self.network_config.linear,
                 multiplier=1.0,
                 alpha=self.network_config.linear_alpha,
-                train_unet=self.train_config.train_unet,
+                train_unet=True,
+                # train_unet=self.train_config.train_unet,
                 train_text_encoder=self.train_config.train_text_encoder,
                 conv_lora_dim=self.network_config.conv,
                 conv_alpha=self.network_config.conv_alpha,
@@ -539,7 +542,8 @@ class BaseSDTrainProcess(BaseTrainProcess):
                 text_encoder,
                 unet,
                 self.train_config.train_text_encoder,
-                self.train_config.train_unet
+                True
+                # self.train_config.train_unet
             )
 
             self.network.prepare_grad_etc(text_encoder, unet)
@@ -609,15 +613,16 @@ class BaseSDTrainProcess(BaseTrainProcess):
                 # set trainable params
                 params = self.embedding.get_trainable_params()
             flush()
-        else:
+        # else:
+        #     # pass
             # set them to train or not
-            if self.train_config.train_unet:
-                print("Setting unet to train")
-                self.sd.unet.requires_grad_(True)
-                self.sd.unet.train()
-            else:
-                print("Disabling unet requires grad")
-                self.sd.unet.requires_grad_(False)
+            # if self.train_config.train_unet:
+            #     print("Setting unet to train")
+            #     self.sd.unet.requires_grad_(True)
+            #     self.sd.unet.train()
+            # else:
+            #     print("Disabling unet requires grad")
+            #     self.sd.unet.requires_grad_(False)
                 # self.sd.unet.eval()
 
             if self.train_config.train_text_encoder:
@@ -644,7 +649,8 @@ class BaseSDTrainProcess(BaseTrainProcess):
             if params is None:
                 # will only return savable weights and ones with grad
                 params = self.sd.prepare_optimizer_params(
-                    unet=self.train_config.train_unet,
+                    # unet=self.train_config.train_unet,
+                    unet=True,
                     text_encoder=self.train_config.train_text_encoder,
                     text_encoder_lr=self.train_config.lr,
                     unet_lr=self.train_config.lr,
@@ -660,6 +666,8 @@ class BaseSDTrainProcess(BaseTrainProcess):
                 self.params += param['params']
             else:
                 self.params.append(param)
+
+        #self.params should be len 1446 (1444 for weight and bias of 722 linear lora layers, + 2 for the 2 learned text embs)
 
         optimizer_type = self.train_config.optimizer.lower()
         optimizer = get_optimizer(params, optimizer_type, learning_rate=self.train_config.lr,

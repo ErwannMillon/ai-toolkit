@@ -69,7 +69,7 @@ class SDTrainer(BaseSDTrainProcess):
                 conditional_embeds = conditional_embeds.detach()
             # flush()
 
-            self.sd.unet.requires_grad_(False)
+            # self.sd.unet.requires_grad_(False)
             noise_pred = self.sd.predict_noise(
                 latents=noisy_latents.to(self.device_torch, dtype=dtype),
                 conditional_embeddings=conditional_embeds.to(self.device_torch, dtype=dtype),

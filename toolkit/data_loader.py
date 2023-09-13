@@ -421,7 +421,7 @@ class AiToolkitDataset(LatentCachingMixin, BucketsMixin, CaptionMixin, Dataset):
         file_item.load_caption(self.caption_dict)
         return file_item
 
-    @lru_cache(maxsize=300)
+    # @lru_cache(maxsize=300)
     def __getitem__(self, item):
         print("calling get item")
         t = time.time()

@@ -342,7 +342,7 @@ class LatentCachingFileItemDTOMixin:
                 # move it back to cpu
                 self._encoded_latent = self._encoded_latent.to('cpu')
 
-    @lru_cache(maxsize=100)
+    # @lru_cache(maxsize=100)
     def get_latent(self, device=None):
         if not self.is_latent_cached:
             return None

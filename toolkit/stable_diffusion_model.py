@@ -823,6 +823,7 @@ class StableDiffusion:
             unet_lr=None,
             default_lr=1e-6,
     ):
+        print("calling prepare optimizer params")
         # todo maybe only get locon ones?
         # not all items are saved, to make it match, we need to match out save mappings
         # and not train anything not mapped. Also add learning rate
