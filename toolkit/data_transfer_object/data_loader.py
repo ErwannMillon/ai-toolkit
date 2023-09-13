@@ -92,8 +92,8 @@ class DataLoaderBatchDTO:
         ) for x in self.file_items]
 
     def cleanup(self):
-        # pass
-        del self.latents
-        del self.tensor
-        for file_item in self.file_items:
-            file_item.cleanup()
+        pass
+        # del self.latents
+        # del self.tensor
+        # for file_item in self.file_items:
+        #     file_item.cleanup()
