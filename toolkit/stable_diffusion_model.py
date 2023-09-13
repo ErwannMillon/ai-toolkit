@@ -1,34 +1,38 @@
 import gc
 import json
-import shutil
-import typing
-from typing import Union, List, Literal, Iterator
-import sys
 import os
+import shutil
+import sys
+import typing
 from collections import OrderedDict
+from typing import Iterator, List, Literal, Union
 
-from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl import rescale_noise_cfg
-from safetensors.torch import save_file, load_file
+import diffusers
+import torch
+from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline
+from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl import \
+    rescale_noise_cfg
+from diffusers.schedulers import DDPMScheduler
+from library.model_util import (convert_text_encoder_state_dict_to_sd_v2,
+                                convert_unet_state_dict_to_sd,
+                                convert_vae_state_dict, load_vae)
+from line_profiler import LineProfiler
+from safetensors.torch import load_file, save_file
 from torch.nn import Parameter
-from tqdm import tqdm
 from torchvision.transforms import Resize
+from tqdm import tqdm
 
-from library.model_util import convert_unet_state_dict_to_sd, convert_text_encoder_state_dict_to_sd_v2, \
-    convert_vae_state_dict, load_vae
 from toolkit import train_tools
-from toolkit.config_modules import ModelConfig, GenerateImageConfig
+from toolkit.config_modules import GenerateImageConfig, ModelConfig
 from toolkit.metadata import get_meta_for_safetensors
-from toolkit.paths import REPOS_ROOT, KEYMAPS_ROOT
-from toolkit.prompt_utils import inject_trigger_into_prompt, PromptEmbeds
+from toolkit.paths import KEYMAPS_ROOT, REPOS_ROOT
+from toolkit.pipelines import (CustomStableDiffusionPipeline,
+                               CustomStableDiffusionXLPipeline,
+                               StableDiffusionKDiffusionXLPipeline)
+from toolkit.prompt_utils import PromptEmbeds, inject_trigger_into_prompt
 from toolkit.sampler import get_sampler
 from toolkit.saving import save_ldm_model_from_diffusers
-from toolkit.train_tools import get_torch_dtype, apply_noise_offset
-import torch
-from diffusers.schedulers import DDPMScheduler
-from toolkit.pipelines import CustomStableDiffusionXLPipeline, CustomStableDiffusionPipeline, \
-    StableDiffusionKDiffusionXLPipeline
-from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline
-import diffusers
+from toolkit.train_tools import apply_noise_offset, get_torch_dtype
 
 # tell it to shut up
 diffusers.logging.set_verbosity(diffusers.logging.ERROR)
@@ -49,7 +53,7 @@ DO_NOT_TRAIN_WEIGHTS = [
 ]
 
 DeviceStatePreset = Literal['cache_latents']
-
+lp = LineProfiler()
 
 class BlankNetwork:
 
@@ -78,12 +82,11 @@ VAE_SCALE_FACTOR = 8  # 2 ** (len(vae.config.block_out_channels) - 1) = 8
 
 # if is type checking
 if typing.TYPE_CHECKING:
-    from diffusers import \
-        StableDiffusionPipeline, \
-        AutoencoderKL, \
-        UNet2DConditionModel
+    from diffusers import (AutoencoderKL, StableDiffusionPipeline,
+                           UNet2DConditionModel)
     from diffusers.schedulers import KarrasDiffusionSchedulers
-    from transformers import CLIPTextModel, CLIPTokenizer, CLIPTextModelWithProjection
+    from transformers import (CLIPTextModel, CLIPTextModelWithProjection,
+                              CLIPTokenizer)
 
 
 class StableDiffusion:

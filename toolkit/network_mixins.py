@@ -130,7 +130,7 @@ class ToolkitModuleMixin:
             self.set_multiplier(0.0)
 
         org_forwarded = self.org_forward(x, *args, **kwargs)
-        lora_output = self._call_forward(x)
+        lora_output = self._call_forward(x) #constant vram
         multiplier = self._multiplier.clone().detach()
 
         lora_output_batch_size = lora_output.size(0)

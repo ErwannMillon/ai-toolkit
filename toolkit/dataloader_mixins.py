@@ -5,20 +5,20 @@ import math
 import os
 import random
 from collections import OrderedDict
-from typing import TYPE_CHECKING, List, Dict, Union
+from functools import lru_cache
+from typing import TYPE_CHECKING, Dict, List, Union
 
 import torch
+from PIL import Image
+from PIL.ImageOps import exif_transpose
 from safetensors.torch import load_file, save_file
+from torchvision import transforms
 from tqdm import tqdm
 
 from toolkit.basic import flush
 from toolkit.buckets import get_bucket_for_image_size
 from toolkit.metadata import get_meta_for_safetensors
 from toolkit.prompt_utils import inject_trigger_into_prompt
-from torchvision import transforms
-from PIL import Image
-from PIL.ImageOps import exif_transpose
-
 from toolkit.train_tools import get_torch_dtype
 
 if TYPE_CHECKING:
@@ -227,13 +227,18 @@ class CaptionProcessingDTOMixin:
 
 
 class ImageProcessingDTOMixin:
+    
     def load_and_process_image(
             self: 'FileItemDTO',
             transform: Union[None, transforms.Compose]
     ):
+        import time
+        t = time.time()
         # if we are caching latents, just do that
         if self.is_latent_cached:
+            print('getting cached latent')
             self.get_latent()
+            # return
         try:
             img = Image.open(self.path).convert('RGB')
             img = exif_transpose(img)
@@ -279,6 +284,7 @@ class ImageProcessingDTOMixin:
             img = transform(img)
 
         self.tensor = img
+        print('load and process time', time.time() - t)
 
 
 class LatentCachingFileItemDTOMixin:
@@ -336,6 +342,7 @@ class LatentCachingFileItemDTOMixin:
                 # move it back to cpu
                 self._encoded_latent = self._encoded_latent.to('cpu')
 
+    @lru_cache(maxsize=100)
     def get_latent(self, device=None):
         if not self.is_latent_cached:
             return None

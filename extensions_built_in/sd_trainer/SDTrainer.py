@@ -1,11 +1,13 @@
-from collections import OrderedDict
-from torch.utils.data import DataLoader
-from toolkit.prompt_utils import concat_prompt_embeds, split_prompt_embeds
-from toolkit.stable_diffusion_model import StableDiffusion, BlankNetwork
-from toolkit.train_tools import get_torch_dtype, apply_snr_weight
 import gc
+from collections import OrderedDict
+
 import torch
+from torch.utils.data import DataLoader
+
 from jobs.process import BaseSDTrainProcess
+from toolkit.prompt_utils import concat_prompt_embeds, split_prompt_embeds
+from toolkit.stable_diffusion_model import BlankNetwork, StableDiffusion
+from toolkit.train_tools import apply_snr_weight, get_torch_dtype
 
 
 def flush():
@@ -29,7 +31,10 @@ class SDTrainer(BaseSDTrainProcess):
         else:
             # offload it. Already cached
             self.sd.vae.to('cpu')
-
+        gc.collect()
+        torch.cuda.empty_cache()
+    
+    # @lp
     def hook_train_loop(self, batch):
 
         dtype = get_torch_dtype(self.train_config.dtype)
@@ -64,6 +69,7 @@ class SDTrainer(BaseSDTrainProcess):
                 conditional_embeds = conditional_embeds.detach()
             # flush()
 
+            self.sd.unet.requires_grad_(False)
             noise_pred = self.sd.predict_noise(
                 latents=noisy_latents.to(self.device_torch, dtype=dtype),
                 conditional_embeddings=conditional_embeds.to(self.device_torch, dtype=dtype),

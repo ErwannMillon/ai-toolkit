@@ -1,13 +1,21 @@
 import os
 import sys
-from typing import Union, OrderedDict
+from typing import OrderedDict, Union
 
 sys.path.insert(0, os.getcwd())
+import argparse
+
 # must come before ANY torch or fastai imports
 import toolkit.cuda_malloc
-import argparse
 from toolkit.job import get_job
 
+
+def torch_sdpa():
+    import torch
+    torch.backends.cuda.enable_math_sdp(True)
+    torch.backends.cuda.enable_flash_sdp(True)
+    torch.backends.cuda.enable_mem_efficient_sdp(True)
+torch_sdpa()
 
 def print_end_message(jobs_completed, jobs_failed):
     failure_string = f"{jobs_failed} failure{'' if jobs_failed == 1 else 's'}" if jobs_failed > 0 else ""

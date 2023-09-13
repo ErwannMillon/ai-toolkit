@@ -1,12 +1,14 @@
-from typing import TYPE_CHECKING, List, Union
-import torch
 import random
+from typing import TYPE_CHECKING, List, Union
 
+import torch
 from PIL import Image
 from PIL.ImageOps import exif_transpose
 
 from toolkit import image_utils
-from toolkit.dataloader_mixins import CaptionProcessingDTOMixin, ImageProcessingDTOMixin, LatentCachingFileItemDTOMixin
+from toolkit.dataloader_mixins import (CaptionProcessingDTOMixin,
+                                       ImageProcessingDTOMixin,
+                                       LatentCachingFileItemDTOMixin)
 
 if TYPE_CHECKING:
     from toolkit.config_modules import DatasetConfig
@@ -90,7 +92,8 @@ class DataLoaderBatchDTO:
         ) for x in self.file_items]
 
     def cleanup(self):
-        del self.latents
-        del self.tensor
-        for file_item in self.file_items:
-            file_item.cleanup()
+        pass
+        # del self.latents
+        # del self.tensor
+        # for file_item in self.file_items:
+        #     file_item.cleanup()

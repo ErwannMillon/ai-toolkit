@@ -1,42 +1,47 @@
 import copy
+import gc
 import glob
 import inspect
-from collections import OrderedDict
 import os
+from collections import OrderedDict
 from typing import Union
 
+import torch
+from contexttimer import Timer
+from line_profiler import LineProfiler
 # from lycoris.config import PRESET
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
+from jobs.process import BaseTrainProcess
+from toolkit.config_modules import (DatasetConfig, EmbeddingConfig,
+                                    GenerateImageConfig, LogingConfig,
+                                    ModelConfig, NetworkConfig, SampleConfig,
+                                    SaveConfig, TrainConfig,
+                                    preprocess_dataset_raw_config)
 from toolkit.data_loader import get_dataloader_from_datasets
-from toolkit.data_transfer_object.data_loader import FileItemDTO, DataLoaderBatchDTO
+from toolkit.data_transfer_object.data_loader import (DataLoaderBatchDTO,
+                                                      FileItemDTO)
 from toolkit.embedding import Embedding
 from toolkit.lora_special import LoRASpecialNetwork
 from toolkit.lycoris_special import LycorisSpecialNetwork
+from toolkit.metadata import (add_base_model_info_to_meta,
+                              get_meta_for_safetensors,
+                              load_metadata_from_safetensors)
 from toolkit.network_mixins import Network
 from toolkit.optimizer import get_optimizer
 from toolkit.paths import CONFIG_ROOT
 from toolkit.progress_bar import ToolkitProgressBar
 from toolkit.sampler import get_sampler
-
 from toolkit.scheduler import get_lr_scheduler
 from toolkit.stable_diffusion_model import StableDiffusion
-
-from jobs.process import BaseTrainProcess
-from toolkit.metadata import get_meta_for_safetensors, load_metadata_from_safetensors, add_base_model_info_to_meta
 from toolkit.train_tools import get_torch_dtype
-import gc
-
-import torch
-from tqdm import tqdm
-
-from toolkit.config_modules import SaveConfig, LogingConfig, SampleConfig, NetworkConfig, TrainConfig, ModelConfig, \
-    GenerateImageConfig, EmbeddingConfig, DatasetConfig, preprocess_dataset_raw_config
 
 
 def flush():
-    torch.cuda.empty_cache()
-    gc.collect()
+    pass
+    # torch.cuda.empty_cache()
+    # gc.collect()
 
 
 class BaseSDTrainProcess(BaseTrainProcess):
@@ -427,6 +432,9 @@ class BaseSDTrainProcess(BaseTrainProcess):
 
     def run(self):
         # run base process run
+        torch.backends.cuda.enable_math_sdp(True)
+        torch.backends.cuda.enable_flash_sdp(True)
+        torch.backends.cuda.enable_mem_efficient_sdp(True)
         BaseTrainProcess.run(self)
 
         ### HOOK ###
@@ -443,7 +451,9 @@ class BaseSDTrainProcess(BaseTrainProcess):
         text_encoder = self.sd.text_encoder
         noise_scheduler = self.sd.noise_scheduler
 
+        self.sd.unet.requires_grad_(False)
         if self.train_config.xformers:
+            print("Enabling xformers memory efficient attention")
             vae.enable_xformers_memory_efficient_attention()
             unet.enable_xformers_memory_efficient_attention()
             if isinstance(text_encoder, list):
@@ -453,6 +463,7 @@ class BaseSDTrainProcess(BaseTrainProcess):
                         te.enable_xformers_memory_efficient_attention()
 
         if self.train_config.gradient_checkpointing:
+            print("enabling gradient checkpointing")
             unet.enable_gradient_checkpointing()
             if isinstance(text_encoder, list):
                 for te in text_encoder:
@@ -479,6 +490,8 @@ class BaseSDTrainProcess(BaseTrainProcess):
         vae = vae.to(torch.device('cpu'), dtype=dtype)
         vae.requires_grad_(False)
         vae.eval()
+        # print('statedict')
+        # print(unet.state_dict())
         flush()
 
         ### HOOk ###
@@ -521,6 +534,7 @@ class BaseSDTrainProcess(BaseTrainProcess):
             # give network to sd so it can use it
             self.sd.network = self.network
 
+            # print("WARNING OVERRIDING APPLY")
             self.network.apply_to(
                 text_encoder,
                 unet,
@@ -598,13 +612,16 @@ class BaseSDTrainProcess(BaseTrainProcess):
         else:
             # set them to train or not
             if self.train_config.train_unet:
+                print("Setting unet to train")
                 self.sd.unet.requires_grad_(True)
                 self.sd.unet.train()
             else:
+                print("Disabling unet requires grad")
                 self.sd.unet.requires_grad_(False)
-                self.sd.unet.eval()
+                # self.sd.unet.eval()
 
             if self.train_config.train_text_encoder:
+                print("Enabling text encoder requires grad")
                 if isinstance(self.sd.text_encoder, list):
                     for te in self.sd.text_encoder:
                         te.requires_grad_(True)
@@ -613,6 +630,7 @@ class BaseSDTrainProcess(BaseTrainProcess):
                     self.sd.text_encoder.requires_grad_(True)
                     self.sd.text_encoder.train()
             else:
+                print("Disabling text encoder requires grad")
                 if isinstance(self.sd.text_encoder, list):
                     for te in self.sd.text_encoder:
                         te.requires_grad_(False)
@@ -721,8 +739,10 @@ class BaseSDTrainProcess(BaseTrainProcess):
             self.sd.unet.train()
         else:
             self.sd.unet.eval()
+        self.sd.vae = self.sd.vae.to("cuda")
         flush()
         # self.step_num = 0
+        # unet.requires_grad_(False)
         for step in range(self.step_num, self.train_config.steps):
             self.progress_bar.unpause()
             with torch.no_grad():
@@ -734,19 +754,33 @@ class BaseSDTrainProcess(BaseTrainProcess):
                 # don't do a reg step on sample or save steps as we dont want to normalize on those
                 if step % 2 == 0 and dataloader_reg is not None and not is_save_step and not is_sample_step:
                     try:
-                        batch = next(dataloader_iterator_reg)
+                        print('getting batch reg')
+                        with Timer() as t:
+                            batch = next(dataloader_iterator_reg)
+                        print("batch reg took", t.elapsed)
+
+
                     except StopIteration:
                         # hit the end of an epoch, reset
-                        dataloader_iterator_reg = iter(dataloader_reg)
-                        batch = next(dataloader_iterator_reg)
+                        print('getting batch stop')
+                        with Timer() as t:
+                            dataloader_iterator_reg = iter(dataloader_reg)
+                            batch = next(dataloader_iterator_reg)
+                        print("batch stop took", t.elapsed)
                     is_reg_step = True
                 elif dataloader is not None:
                     try:
-                        batch = next(dataloader_iterator)
+                        print("getting batch, dl none")
+                        with Timer() as t:
+                            batch = next(dataloader_iterator)
+                        print("batch took", t.elapsed)
                     except StopIteration:
                         # hit the end of an epoch, reset
-                        dataloader_iterator = iter(dataloader)
-                        batch = next(dataloader_iterator)
+                        print("getting batch, dl none stop")
+                        with Timer() as t:
+                            dataloader_iterator = iter(dataloader)
+                            batch = next(dataloader_iterator)
+                        print("batch stop dl none took", t.elapsed)
                 else:
                     batch = None
 
@@ -755,67 +789,19 @@ class BaseSDTrainProcess(BaseTrainProcess):
                     self.network.is_normalizing = True
             # flush()
             ### HOOK ###
+            # lp = LineProfiler()
+            # lp_wrapper = lp(self.hook_train_loop)
             loss_dict = self.hook_train_loop(batch)
+            # loss_dict = lp_wrapper(batch)
+            # lp.print_stats(output_unit=1.)
             # flush()
             # setup the networks to gradient checkpointing and everything works
 
-            with torch.no_grad():
-                torch.cuda.empty_cache()
-                if self.train_config.optimizer.lower().startswith('dadaptation') or \
-                        self.train_config.optimizer.lower().startswith('prodigy'):
-                    learning_rate = (
-                            optimizer.param_groups[0]["d"] *
-                            optimizer.param_groups[0]["lr"]
-                    )
-                else:
-                    learning_rate = optimizer.param_groups[0]['lr']
-
-                prog_bar_string = f"lr: {learning_rate:.1e}"
-                for key, value in loss_dict.items():
-                    prog_bar_string += f" {key}: {value:.3e}"
-
-                self.progress_bar.set_postfix_str(prog_bar_string)
-
-                # don't do on first step
-                if self.step_num != self.start_step:
-                    if is_sample_step:
-                        self.progress_bar.pause()
-                        # print above the progress bar
-                        self.sample(self.step_num)
-                        self.progress_bar.unpause()
-
-                    if is_save_step:
-                        # print above the progress bar
-                        self.progress_bar.pause()
-                        self.print(f"Saving at step {self.step_num}")
-                        self.save(self.step_num)
-                        self.progress_bar.unpause()
-
-                    if self.logging_config.log_every and self.step_num % self.logging_config.log_every == 0:
-                        self.progress_bar.pause()
-                        # log to tensorboard
-                        if self.writer is not None:
-                            for key, value in loss_dict.items():
-                                self.writer.add_scalar(f"{key}", value, self.step_num)
-                            self.writer.add_scalar(f"lr", learning_rate, self.step_num)
-                        self.progress_bar.unpause()
-
-                # sets progress bar to match out step
-                self.progress_bar.update(step - self.progress_bar.n)
-                # end of step
-                self.step_num = step
-
-                # apply network normalizer if we are using it, not on regularization steps
-                if self.network is not None and self.network.is_normalizing and not is_reg_step:
-                    self.network.apply_stored_normalizer()
-
-                # if the batch is a DataLoaderBatchDTO, then we need to clean it up
-                if isinstance(batch, DataLoaderBatchDTO):
-                    batch.cleanup()
-
-                # flush every 10 steps
-                if self.step_num % 10 == 0:
-                    flush()
+            self.after_unet_pred(optimizer, step, is_reg_step, is_save_step, is_sample_step, batch, loss_dict)
+            # lp = LineProfiler()
+            # lp_wrapper = lp(self.after_unet_pred)
+            # lp_wrapper(optimizer, step, is_reg_step, is_save_step, is_sample_step, batch, loss_dict)
+            # lp.print_stats(output_unit=1.)
 
         self.progress_bar.close()
         self.sample(self.step_num + 1)
@@ -833,3 +819,62 @@ class BaseSDTrainProcess(BaseTrainProcess):
         )
 
         flush()
+
+    def after_unet_pred(self, optimizer, step, is_reg_step, is_save_step, is_sample_step, batch, loss_dict):
+        with torch.no_grad():
+            # torch.cuda.empty_cache()
+            if self.train_config.optimizer.lower().startswith('dadaptation') or \
+                        self.train_config.optimizer.lower().startswith('prodigy'):
+                learning_rate = (
+                            optimizer.param_groups[0]["d"] *
+                            optimizer.param_groups[0]["lr"]
+                    )
+            else:
+                learning_rate = optimizer.param_groups[0]['lr']
+
+            prog_bar_string = f"lr: {learning_rate:.1e}"
+            for key, value in loss_dict.items():
+                prog_bar_string += f" {key}: {value:.3e}"
+
+            self.progress_bar.set_postfix_str(prog_bar_string)
+
+                # don't do on first step
+            if self.step_num != self.start_step:
+                if is_sample_step:
+                    self.progress_bar.pause()
+                        # print above the progress bar
+                    self.sample(self.step_num)
+                    self.progress_bar.unpause()
+
+                if is_save_step:
+                        # print above the progress bar
+                    self.progress_bar.pause()
+                    self.print(f"Saving at step {self.step_num}")
+                    self.save(self.step_num)
+                    self.progress_bar.unpause()
+
+                if self.logging_config.log_every and self.step_num % self.logging_config.log_every == 0:
+                    self.progress_bar.pause()
+                        # log to tensorboard
+                    if self.writer is not None:
+                        for key, value in loss_dict.items():
+                            self.writer.add_scalar(f"{key}", value, self.step_num)
+                        self.writer.add_scalar(f"lr", learning_rate, self.step_num)
+                    self.progress_bar.unpause()
+
+                # sets progress bar to match out step
+            self.progress_bar.update(step - self.progress_bar.n)
+                # end of step
+            self.step_num = step
+
+                # apply network normalizer if we are using it, not on regularization steps
+            if self.network is not None and self.network.is_normalizing and not is_reg_step:
+                self.network.apply_stored_normalizer()
+
+                # if the batch is a DataLoaderBatchDTO, then we need to clean it up
+            if isinstance(batch, DataLoaderBatchDTO):
+                batch.cleanup()
+
+                # flush every 10 steps
+            if self.step_num % 10 == 0:
+                flush()
