@@ -1,37 +1,39 @@
 import copy
+import gc
 import glob
 import inspect
-from collections import OrderedDict
 import os
+from collections import OrderedDict
 from typing import Union
 
+import torch
 # from lycoris.config import PRESET
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
+from jobs.process import BaseTrainProcess
+from toolkit.config_modules import (DatasetConfig, EmbeddingConfig,
+                                    GenerateImageConfig, LogingConfig,
+                                    ModelConfig, NetworkConfig, SampleConfig,
+                                    SaveConfig, TrainConfig,
+                                    preprocess_dataset_raw_config)
 from toolkit.data_loader import get_dataloader_from_datasets
-from toolkit.data_transfer_object.data_loader import FileItemDTO, DataLoaderBatchDTO
+from toolkit.data_transfer_object.data_loader import (DataLoaderBatchDTO,
+                                                      FileItemDTO)
 from toolkit.embedding import Embedding
 from toolkit.lora_special import LoRASpecialNetwork
 from toolkit.lycoris_special import LycorisSpecialNetwork
+from toolkit.metadata import (add_base_model_info_to_meta,
+                              get_meta_for_safetensors,
+                              load_metadata_from_safetensors)
 from toolkit.network_mixins import Network
 from toolkit.optimizer import get_optimizer
 from toolkit.paths import CONFIG_ROOT
 from toolkit.progress_bar import ToolkitProgressBar
 from toolkit.sampler import get_sampler
-
 from toolkit.scheduler import get_lr_scheduler
 from toolkit.stable_diffusion_model import StableDiffusion
-
-from jobs.process import BaseTrainProcess
-from toolkit.metadata import get_meta_for_safetensors, load_metadata_from_safetensors, add_base_model_info_to_meta
 from toolkit.train_tools import get_torch_dtype
-import gc
-
-import torch
-from tqdm import tqdm
-
-from toolkit.config_modules import SaveConfig, LogingConfig, SampleConfig, NetworkConfig, TrainConfig, ModelConfig, \
-    GenerateImageConfig, EmbeddingConfig, DatasetConfig, preprocess_dataset_raw_config
 
 
 def flush():
@@ -723,6 +725,9 @@ class BaseSDTrainProcess(BaseTrainProcess):
             self.sd.unet.eval()
         flush()
         # self.step_num = 0
+        
+        self.sd.unet.eval()
+        self.sd.unet.requires_grad_(False)
         for step in range(self.step_num, self.train_config.steps):
             self.progress_bar.unpause()
             with torch.no_grad():
@@ -760,7 +765,7 @@ class BaseSDTrainProcess(BaseTrainProcess):
             # setup the networks to gradient checkpointing and everything works
 
             with torch.no_grad():
-                torch.cuda.empty_cache()
+                # torch.cuda.empty_cache()
                 if self.train_config.optimizer.lower().startswith('dadaptation') or \
                         self.train_config.optimizer.lower().startswith('prodigy'):
                     learning_rate = (
@@ -814,8 +819,8 @@ class BaseSDTrainProcess(BaseTrainProcess):
                     batch.cleanup()
 
                 # flush every 10 steps
-                if self.step_num % 10 == 0:
-                    flush()
+                # if self.step_num % 10 == 0:
+                #     flush()
 
         self.progress_bar.close()
         self.sample(self.step_num + 1)

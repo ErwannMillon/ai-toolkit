@@ -5,20 +5,19 @@ import math
 import os
 import random
 from collections import OrderedDict
-from typing import TYPE_CHECKING, List, Dict, Union
+from typing import TYPE_CHECKING, Dict, List, Union
 
 import torch
+from PIL import Image
+from PIL.ImageOps import exif_transpose
 from safetensors.torch import load_file, save_file
+from torchvision import transforms
 from tqdm import tqdm
 
 from toolkit.basic import flush
 from toolkit.buckets import get_bucket_for_image_size
 from toolkit.metadata import get_meta_for_safetensors
 from toolkit.prompt_utils import inject_trigger_into_prompt
-from torchvision import transforms
-from PIL import Image
-from PIL.ImageOps import exif_transpose
-
 from toolkit.train_tools import get_torch_dtype
 
 if TYPE_CHECKING:
@@ -234,6 +233,7 @@ class ImageProcessingDTOMixin:
         # if we are caching latents, just do that
         if self.is_latent_cached:
             self.get_latent()
+            return
         try:
             img = Image.open(self.path).convert('RGB')
             img = exif_transpose(img)

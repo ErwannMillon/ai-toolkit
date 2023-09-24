@@ -1,21 +1,24 @@
 import json
 import os
 import random
-from typing import List, TYPE_CHECKING
+from functools import lru_cache
+from typing import TYPE_CHECKING, List
 
+import albumentations as A
 import cv2
 import numpy as np
 from PIL import Image
 from PIL.ImageOps import exif_transpose
+from torch.utils.data import ConcatDataset, DataLoader, Dataset
 from torchvision import transforms
-from torch.utils.data import Dataset, DataLoader, ConcatDataset
 from tqdm import tqdm
-import albumentations as A
 
-from toolkit.buckets import get_bucket_for_image_size, BucketResolution
+from toolkit.buckets import BucketResolution, get_bucket_for_image_size
 from toolkit.config_modules import DatasetConfig, preprocess_dataset_raw_config
-from toolkit.dataloader_mixins import CaptionMixin, BucketsMixin, LatentCachingMixin
-from toolkit.data_transfer_object.data_loader import FileItemDTO, DataLoaderBatchDTO
+from toolkit.data_transfer_object.data_loader import (DataLoaderBatchDTO,
+                                                      FileItemDTO)
+from toolkit.dataloader_mixins import (BucketsMixin, CaptionMixin,
+                                       LatentCachingMixin)
 
 if TYPE_CHECKING:
     from toolkit.stable_diffusion_model import StableDiffusion
@@ -411,7 +414,9 @@ class AiToolkitDataset(LatentCachingMixin, BucketsMixin, CaptionMixin, Dataset):
             return len(self.batch_indices)
         return len(self.file_list)
 
+    @lru_cache(maxsize=300)
     def _get_single_item(self, index) -> 'FileItemDTO':
+        print("running get single item")
         file_item = self.file_list[index]
         file_item.load_and_process_image(self.transform)
         file_item.load_caption(self.caption_dict)
