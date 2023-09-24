@@ -1,0 +1,80 @@
+job: extension
+config:
+  name: krea_style_test_v2
+  process:
+  - type: sd_trainer
+    training_folder: lora_ti_test5
+    device: cuda:0
+    log_dir: logs2
+    network:
+      type: lora
+      linear: 32
+      linear_alpha: 32
+    embedding:
+      trigger: kreastyle
+      tokens: 2
+      init_words: digital art
+      save_format: safetensors
+    save:
+      dtype: float16
+      save_every: 100
+      max_step_saves_to_keep: 5
+    datasets:
+    - folder_path: /home/erwann/jillus2/nocaption
+      caption_ext: txt
+      default_caption: '[trigger]'
+      buckets: true
+      cache_latents: true
+      cache_latents_to_disk: true
+      resolution: 1024
+    train:
+      batch_size: 4
+      train_unet: true
+      train_text_encoder: false
+      steps: 1000
+      lr: 0.0002
+      embedding_lr: 0.0003
+      gradient_checkpointing: false
+      noise_scheduler: ddpm
+      optimizer: adamw
+      optimizer_params:
+        weight_decay: 0.1
+      lr_scheduler: constant
+      max_denoising_steps: 1000
+      dtype: bf16
+      min_snr_gamma: 5.0
+      skip_first_sample: true
+      noise_offset: 0.0357
+    model:
+      name_or_path: /home/erwann/ComfyUI/models/checkpoints/sd_xl_base_1.0_0.9vae.safetensors
+      is_v2: false
+      is_xl: true
+      is_v_pred: false
+      use_text_encoder_1: true
+      use_text_encoder_2: true
+    sample:
+      sampler: k_dpmsolver++
+      sample_every: 50
+      width: 1024
+      height: 1024
+      prompts:
+      - christina hendricks [trigger]
+      - donald trump [trigger]
+      - '[trigger] bob barker'
+      neg: ''
+      seed: 42
+      walk_seed: false
+      guidance_scale: 9
+      sample_steps: 20
+      network_multiplier: 1.0
+    logging:
+      log_every: 10
+      use_wandb: false
+      verbose: false
+meta:
+  name: krea_style_test_v2
+  version: '1.0'
+  creator:
+    name: Ostris - Jaret Burkett
+    email: jaret@ostris.com
+    website: https://ostris.com
